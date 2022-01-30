@@ -49,7 +49,7 @@ namespace WTelegram
 		/// <param name="totalSize">total size of file in bytes, or 0 if unknown</param>
 		public delegate void ProgressCallback(long transmitted, long totalSize);
 
-		private readonly Dictionary<string, Func<string>> _config;
+		private readonly ConfigParameters _config;
 		private readonly Session _session;
 		private string _apiHash;
 		private Session.DCSession _dcSession;
@@ -86,14 +86,14 @@ namespace WTelegram
 		/// <summary>Welcome to WTelegramClient! 🙂</summary>
 		/// <param name="configProvider">Config callback, is queried for: <b>api_id</b>, <b>api_hash</b>, <b>session_pathname</b></param>
 		/// <param name="sessionStore">if specified, must support initial Length &amp; Read() of a session, then calls to Write() the updated session. Other calls can be ignored</param>
-		public Client(Dictionary<string, Func<string>> configProvider = null, Stream sessionStore = null)
+		public Client(ConfigParameters configProvider = null, Stream sessionStore = null)
 		{
-			_config = configProvider ?? DefaultConfig();
+			_config = configProvider;
 
-            sessionStore ??= new SessionStore(_config["session_pathname"].Invoke());
-			var session_key = _config["session_key"]?.Invoke() ?? (_apiHash = _config["api_hash"].Invoke());
+            sessionStore ??= new SessionStore(_config.Get(Enums.ConfigEnum.session_pathname));
+			var session_key = _config.Get(Enums.ConfigEnum.session_key) ?? (_apiHash = _config.Get(Enums.ConfigEnum.api_hash));
 			_session = Session.LoadOrCreate(sessionStore, Convert.FromHexString(session_key));
-			if (_session.ApiId == 0) _session.ApiId = int.Parse(_config["api_id"].Invoke());
+			if (_session.ApiId == 0) _session.ApiId = int.Parse(_config.Get(Enums.ConfigEnum.api_id));
 			if (_session.MainDC != 0) _session.DCSessions.TryGetValue(_session.MainDC, out _dcSession);
 			_dcSession ??= new() { Id = Helpers.RandomLong() };
 			_dcSession.Client = this;
@@ -114,40 +114,7 @@ namespace WTelegram
 
 
 		/// <summary>Default config values, used if your Config callback returns <see langword="null"/></summary>
-		public static Dictionary<string, Func<string>> DefaultConfig()
-		{
-			Dictionary<string, Func<string>> r = new()
-			{
-				["session_pathname"] = () =>
-				{
-					return Path.Combine(
-						Path.GetDirectoryName(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)))
-						?? AppDomain.CurrentDomain.BaseDirectory, "WTelegram.session");
-				},
-				["device_model"] = () => { return Environment.Is64BitOperatingSystem ? "PC 64bit" : "PC 32bit"; },
-				["server_address"] = () => {
-
-#if DEBUG
-					return "149.154.167.40:443";  // Test DC 2
-#else
-					return ""149.154.167.50:443";
-#endif
-
-				},
-				["system_version"] = () => { return Helpers.GetSystemVersion(); },
-				["app_version"] = () => { return Helpers.GetAppVersion(); },
-				["system_lang_code"] = () => { return CultureInfo.InstalledUICulture.TwoLetterISOLanguageName; },
-				["lang_pack"] = () => { return ""; },
-				["lang_code"] = () => { return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName; },
-				["user_id"] = () => { return "-1"; },
-				["verification_code"] = () => { return Console.ReadLine(); },
-				["password"] = () => { return Console.ReadLine(); }
-			};
-
-			return r;
-        }
-
-
+	
 
 
 		/// <summary>Load a specific Telegram server public key</summary>
@@ -266,7 +233,7 @@ namespace WTelegram
 			}
 			else
 			{
-				endpoint = _dcSession?.EndPoint ?? Compat.IPEndPoint_Parse(_config["server_address"].Invoke());
+				endpoint = _dcSession?.EndPoint ?? Compat.IPEndPoint_Parse(_config.Get(Enums.ConfigEnum.server_address));
 				Helpers.Log(2, $"Connecting to {endpoint}...");
 				TcpClient tcpClient = null;
 				try
@@ -302,7 +269,7 @@ namespace WTelegram
 						}
 						if (tcpClient == null)
 						{
-							endpoint = Compat.IPEndPoint_Parse(_config["server_address"].Invoke()); // re-ask callback for an address
+							endpoint = Compat.IPEndPoint_Parse(_config.Get(Enums.ConfigEnum.server_address)); // re-ask callback for an address
 							if (!triedEndpoints.Add(endpoint)) throw;
 							_dcSession.Client = null;
 							// is it address for a known DCSession?
@@ -345,12 +312,12 @@ namespace WTelegram
 					new TL.Methods.InitConnection<Config>
 					{
 						api_id = _session.ApiId,
-						device_model = _config["device_model"].Invoke(),
-						system_version = _config["system_version"].Invoke(),
-						app_version = _config["app_version"].Invoke(),
-						system_lang_code = _config["system_lang_code"].Invoke(),
-						lang_pack = _config["lang_pack"].Invoke(),
-						lang_code = _config["lang_code"].Invoke(),
+						device_model = _config.Get(Enums.ConfigEnum.device_model),
+						system_version = _config.Get(Enums.ConfigEnum.system_version),
+						app_version = _config.Get(Enums.ConfigEnum.app_version),
+						system_lang_code = _config.Get(Enums.ConfigEnum.system_lang_code),
+						lang_pack = _config.Get(Enums.ConfigEnum.lang_pack),
+						lang_code = _config.Get(Enums.ConfigEnum.lang_code),
 						query = new TL.Methods.Help_GetConfig()
 					});
 				_session.DcOptions = TLConfig.dc_options;
@@ -1065,7 +1032,7 @@ namespace WTelegram
 		public async Task<User> LoginBotIfNeeded()
 		{
 			await ConnectAsync();
-			string botToken = _config["bot_token"].Invoke();
+			string botToken = _config.Get(Enums.ConfigEnum.bot_token);
 			if (_session.UserId != 0) // a user is already logged-in
 			{
 				try
@@ -1086,7 +1053,7 @@ namespace WTelegram
 				await this.Auth_LogOut();
 				_session.UserId = _dcSession.UserId = 0;
 			}
-			var authorization = await this.Auth_ImportBotAuthorization(0, _session.ApiId, _apiHash ??= _config["api_hash"].Invoke(), botToken);
+			var authorization = await this.Auth_ImportBotAuthorization(0, _session.ApiId, _apiHash ??= _config.Get(Enums.ConfigEnum.api_hash), botToken);
 			return LoginAlreadyDone(authorization);
 		}
 
@@ -1107,8 +1074,8 @@ namespace WTelegram
 					var users = await this.Users_GetUsers(new[] { InputUser.Self }); // this calls also reenable incoming Updates
 					var self = users[0] as User;
 					// check user_id or phone_number match currently logged-in user
-					if ((long.TryParse(_config["user_id"].Invoke(), out long id) && (id == -1 || self.id == id)) ||
-						self.phone == string.Concat((phone_number = _config["phone_number"].Invoke()).Where(char.IsDigit)))
+					if ((long.TryParse(_config.Get(Enums.ConfigEnum.user_id), out long id) && (id == -1 || self.id == id)) ||
+						self.phone == string.Concat((phone_number = _config.Get(Enums.ConfigEnum.phone_number)).Where(char.IsDigit)))
 					{
 						_session.UserId = _dcSession.UserId = self.id;
 						return self;
@@ -1122,11 +1089,11 @@ namespace WTelegram
 				await this.Auth_LogOut();
 				_session.UserId = _dcSession.UserId = 0;
 			}
-			phone_number ??= _config["phone_number"].Invoke();
+			phone_number ??= _config.Get(Enums.ConfigEnum.phone_number);
 			Auth_SentCode sentCode;
 			try
 			{
-				sentCode = await this.Auth_SendCode(phone_number, _session.ApiId, _apiHash ??= _config["api_hash"].Invoke(), settings ??= new());
+				sentCode = await this.Auth_SendCode(phone_number, _session.ApiId, _apiHash ??= _config.Get(Enums.ConfigEnum.api_hash), settings ??= new());
 			}
 			catch (RpcException ex) when (ex.Code == 500 && ex.Message == "AUTH_RESTART")
 			{
@@ -1140,7 +1107,7 @@ namespace WTelegram
 			for (int retry = 1; authorization == null; retry++)
 				try
 				{
-					var verification_code = _config["verification_code"].Invoke();
+					var verification_code = _config.Get(Enums.ConfigEnum.verification_code);
 					if (verification_code == "" && sentCode.next_type != 0)
 					{
 						var mustWait = timeout - DateTime.UtcNow;
@@ -1158,7 +1125,7 @@ namespace WTelegram
 				{
 					var accountPassword = await this.Account_GetPassword();
 					OnUpdate(accountPassword);
-					var checkPasswordSRP = await Check2FA(accountPassword, () => _config["password"].Invoke());
+					var checkPasswordSRP = await Check2FA(accountPassword, () => _config.Get(Enums.ConfigEnum.password));
 					authorization = await this.Auth_CheckPassword(checkPasswordSRP);
 				}
 				catch (RpcException e) when (e.Code == 400 && e.Message == "PHONE_CODE_INVALID" && retry != 3)
@@ -1169,8 +1136,8 @@ namespace WTelegram
 				var waitUntil = DateTime.UtcNow.AddSeconds(3);
 				if (signUpRequired.terms_of_service != null)
 					OnUpdate(signUpRequired.terms_of_service); // give caller the possibility to read and accept TOS
-				var first_name = _config["first_name"].Invoke();
-				var last_name = _config["last_name"].Invoke();
+				var first_name = _config.Get(Enums.ConfigEnum.first_name);
+				var last_name = _config.Get(Enums.ConfigEnum.last_name);
 				var wait = waitUntil - DateTime.UtcNow;
 				if (wait > TimeSpan.Zero) await Task.Delay(wait); // we get a FLOOD_WAIT_3 if we SignUp too fast
 				authorization = await this.Auth_SignUp(phone_number, sentCode.phone_code_hash, first_name, last_name);
