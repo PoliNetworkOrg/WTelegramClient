@@ -433,7 +433,7 @@ j4WcDuXc2CTHgH8gFTNhp/Y8/SpDOhvn9QIDAQAB
 		}
 #endif
 
-		internal static async Task<InputCheckPasswordSRP> Check2FA(Account_Password accountPassword, Func<Task<string>> getPassword)
+		internal static async Task<InputCheckPasswordSRP> Check2FA(Account_Password accountPassword, Func<string> getPassword)
 		{
 			bool newPassword = false;
 			if (accountPassword.current_algo is not PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow algo)
@@ -453,7 +453,7 @@ j4WcDuXc2CTHgH8gFTNhp/Y8/SpDOhvn9QIDAQAB
 
 			System.Threading.Thread.Sleep(100);
 			Helpers.Log(3, $"This account has enabled 2FA. A password is needed. {accountPassword.hint}");
-			var passwordBytes = Encoding.UTF8.GetBytes(await getPassword());
+			var passwordBytes = Encoding.UTF8.GetBytes(getPassword());
 
 			using var sha256 = SHA256.Create();
 			sha256.TransformBlock(algo.salt1, 0, algo.salt1.Length, null, 0);
